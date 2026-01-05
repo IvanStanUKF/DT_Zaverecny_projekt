@@ -1,10 +1,12 @@
-# **DT_Zaveracny_projekt**
+# **DT_Zaverecny_projekt**
 Záverečný projekt z predmetu Databázové technológie, Autori: Ivan Stančiak, Maksym Kuryk
 
 Tento repozitár predstavuje implementáciu ELT procesu v Snowflake a vytvorenie dátového skladu so schémou Star Schema. Projekt pracuje s **Credit/Debit Transactions: Fast Food and Quick Service Restaurants** datasetom. Projekt sa zameriava na preskúmanie uskutočnených transakcií.
 
 ---
 ## **1. Úvod a popis zdrojových dát**
+Dataset Credit/Debit Transactions: Fast Food and Quick Service Restaurants bol zvolený, pretože poskytuje realistické transakčné dáta, ktoré umožňujú analyzovať správanie zákazníkov, trendy nákupov, výkon prevádzok a demografické vzorce držiteľov kariet. Je ideálny na tvorbu hviezdicovej schémy a vizualizáciu kľúčových metrík v oblasti rýchleho občerstvenia.
+
 V tomto projekte analyzujeme dáta o transakciách, zákazníkoch a obhcodníkoch. Cieľom je porozumieť:
 - kde sa transakcie uskutočňujú,
 - kedy sa transakcie uskutočňujú,
@@ -33,10 +35,10 @@ Surové dáta sú usporiadané v relačnom modeli, ktorý je znázornený na **e
 ## **2 Dimenzionálny model**
 
 V ukážke bola navrhnutá **schéma hviezdy (star schema)** podľa Kimballovej metodológie, ktorá obsahuje 1 tabuľku faktov **`fact_transaction`**, ktorá je prepojená s nasledujúcimi 4 dimenziami:
-- **`dim_card`**: Obsahuje podrobné údaje o kartách a ich vlastníkoch (číslo karty, typ karty, id účtu, generácia a vek držiteľa karty).
-- **`dim_merchant`**: Obsahuje podrobné údaje o obchodníkoch (názov obchodníka, lokácia prevádzky, kategórie).
-- **`dim_date`**: Zahrňuje informácie o dátumoch hodnotení (dátum, deň, deň v týždni, mesiac, rok).
-- **`dim_time`**: Obsahuje podrobné časové údaje (čas, hodina, minúta, sekunda).
+- **`dim_card`**: Obsahuje podrobné údaje o kartách a ich vlastníkoch (číslo karty, typ karty, id účtu, generácia a vek držiteľa karty). Vzťah k tabuľke faktov: PK dim_cardId (dim_card) - CK cardId (fact_transaction).
+- **`dim_merchant`**: Obsahuje podrobné údaje o obchodníkoch (názov obchodníka, lokácia prevádzky, kategórie). Vzťah k tabuľke faktov: PK dim_merchantId (dim_merchant) - CK merchantId (fact_transaction).
+- **`dim_date`**: Zahrňuje informácie o dátumoch hodnotení (dátum, deň, deň v týždni, mesiac, rok). Vzťah k tabuľke faktov: PK dim_dateId (dim_date) - CK dateId (fact_transaction).
+- **`dim_time`**: Obsahuje podrobné časové údaje (čas, hodina, minúta, sekunda). Vzťah k tabuľke faktov: PK dim_timeId (dim_eime) - CK timeId (fact_transaction).
 
 Štruktúra hviezdicového modelu je znázornená na diagrame nižšie. Diagram ukazuje prepojenia medzi faktovou tabuľkou a dimenziami, čo zjednodušuje pochopenie a implementáciu modelu.
 
@@ -52,7 +54,8 @@ ETL proces pozostáva z troch hlavných fáz: `extrahovanie` (Extract), `načít
 
 ---
 ### **3.1 Extract (Extrahovanie dát)**
-Dáta zo zdrojového datasetu (nachádzajúceho sa na Snowflake marketplace) boli najprv nahraté do Snowflake prostredníctvom Snowflake marketplace (cez tlačidlo Get). Kontrola extrahovania údajov a vytvorenie schémy projektu bolo zabezpečené príkazmi:
+Dáta zo zdrojového datasetu (nachádzajúceho sa na Snowflake marketplace) boli najprv nahraté do Snowflake prostredníctvom Snowflake marketplace (cez tlačidlo Get) - databáza.schéma: CREDITDEBIT_TRANSACTIONS_FAST_FOOD_AND_QUICK_SERVICE_RESTAURANTS.SNOWFLAKE_MARKETPLACE. 
+Kontrola extrahovania údajov a vytvorenie schémy projektu boli zabezpečené príkazmi:
 
 #### Príklad kódu:
 ```sql
@@ -89,8 +92,9 @@ DESCRIBE TABLE raw_data;
 ### **3.3 Transform (Transformácia dát)**
 
 V tejto fáze boli dáta z pôvodnej tabuľky vyčistené a transformované. Hlavným cieľom bolo pripraviť dimenzie a faktovú tabuľku, ktoré umožnia jednoduchú a efektívnu analýzu. Dimenzie boli navrhnuté na poskytovanie kontextu pre faktovú tabuľku. 
+Transformácia zahŕňala získanie jedinečných riadkov pre každú dimenziu (dim_card, dim_merchant, dim_date, dim_time) a zároveň tvorbu jedinečného PK typu INT cez Window function s ROW_NUMBER() pre každú dimenziu a faktovú tabuľku. 
 
-`dim_card` obsahuje podrobné údaje o kartách a ich vlastníkoch (číslo karty, typ karty, id účtu, generácia a vek držiteľa karty). Transformácia zahŕňala získanie jedinečných riadkov pre každú kartu. Táto dimenzia je `typu SCD 0`, čiže neumožňuje sledovať historické zmeny v údajoch o karte a vlastníkovi karty.
+`dim_card` obsahuje podrobné údaje o kartách a ich vlastníkoch (číslo karty, typ karty, id účtu, generácia a vek držiteľa karty). Táto dimenzia je `typu SCD 0`, čiže neumožňuje sledovať historické zmeny v údajoch o karte a vlastníkovi karty.
 
 #### Príklad kódu:
 ```sql
@@ -160,9 +164,7 @@ SELECT * FROM dim_merchant ORDER BY dim_merchantid ASC LIMIT 100;
 DESCRIBE TABLE dim_merchant;
 ```
 
-Dimenzia `dim_date` je navrhnutá tak, aby uchovávala informácie o dátumoch uskutočnenia transakcií. Obsahuje odvodené údaje, ako sú deň, deň v týždni, mesiac, rok. Táto dimenzia je štruktúrovaná tak, aby umožňovala podrobné dátumové analýzy, ako sú počty a sumy transakcií za dni, dni v týždni, mesiace. Z hľadiska SCD je táto dimenzia klasifikovaná ako `SCD Typ 0`. To znamená, že existujúce záznamy v tejto dimenzii sú nemenné a uchovávajú statické informácie.
-
-Dimenzia `dim_time` je navrhnutá tak, aby uchovávala informácie o časoch uskutočnenia transakcií. Obsahuje odvodené údaje, ako sú hodina, minúta, sekunda. Táto dimenzia je štruktúrovaná tak, aby umožňovala podrobné časové analýzy, ako sú počty a sumy transakcií za danú hodinu, minútu, sekundu. Z hľadiska SCD je táto dimenzia klasifikovaná ako `SCD Typ 0`. To znamená, že existujúce záznamy v tejto dimenzii sú nemenné a uchovávajú statické informácie.
+Dimenzie `dim_date` a `dim_time` sú navrhnuté tak, aby uchovávali informácie o dátumoch a časoch uskutočnenia transakcií. Obsahuje odvodené údaje, ako sú deň, deň v týždni, mesiac, rok (pre dim_date) a hodina, minúta, sekunda (pre dim_time). Tieto dimenzie sú štruktúrované tak, aby umožňovali podrobné dátumové a časové analýzy, ako sú počty a sumy transakcií za dni, dni v týždni, mesiace, hodiny, minúty, sekundy. Z hľadiska SCD sú tieto dimenzie klasifikované ako `SCD Typ 0`. To znamená, že existujúce záznamy v týchto dimenziách sú nemenné a uchovávajú statické informácie.
 
 #### Príklad kódu:
 ```sql
@@ -235,6 +237,8 @@ SELECT * FROM dim_date ORDER BY dim_dateId ASC;
 DESCRIBE TABLE dim_date;
 ```
 
+Pred vytvorením faktovej tabuľky bolo nutné nahradiť hodnoty NULL v dim_merchant.store_id na '-1' kvôli správnemu vytvoreniu faktovej tabuľky na základe spájania cez INNER JOIN.
+
 Faktová tabuľka `fact_transaction` obsahuje záznamy o transakciách a prepojenia na všetky dimenzie. Obsahuje kľúčové metriky, ako je číslo transakcie, suma transakcie, typ transakcie, miesto transakciel, atď.
 
 #### Príklad kódu:
@@ -292,6 +296,173 @@ Po úspešnom vytvorení dimenzií a faktovej tabuľky boli dáta nahraté do fi
 // Odstránenie pôvodnej tabuľky
 DROP TABLE IF EXISTS raw_data;
 ```
+
+---
+## **4 Vizualizácia dát**
+
+Dashboard obsahuje `6 vizualizácií`, ktoré poskytujú základný prehľad o kľúčových metrikách týkajúcich sa uskutočnených platieb v danom štáte za dané časové obdobie. Tieto vizualizácie odpovedajú na dôležité otázky a umožňujú lepšie pochopiť rozsah uskutočnených platieb.
+
+<p align="center">
+  <img src="https://github.com/IvanStanUKF/DT_Zaverecny_projekt/blob/main/img/DT_Záverečný-projekt_Dashboard.png" alt="Dashboard">
+  <br>
+  <em>Obrázok 3 Dashboard Credit/Debit Transactions: Fast Food and Quick Service Restaurants datasetu</em>
+</p>
+
+---
+### **Graf 1: Počet transakcií na US štát (top 8)**
+Graf zobrazuje 8 štátov v USA s najväčším počtom transakcií. 
+Z údajov je možné identifikovať štáty v USA s najväčším počtom transakcií. 
+Z údajov je možné pozorovať, že štát `TX` má výrazne najviac transakcií v tomto odvetví. 
+Tieto údaje môžu byť výrazne užitočné pri výbere sídla podniku.
+
+```sql
+/* Graf 1: Počet transakcií na US štát (top 8) */
+
+SELECT 
+    state AS state,
+    COUNT(state) AS total_transactions_by_state
+FROM fact_transaction
+GROUP BY state
+ORDER BY total_transactions_by_state DESC
+LIMIT 8;
+```
+
+<p align="center">
+  <img src="https://github.com/IvanStanUKF/DT_Zaverecny_projekt/blob/main/img/DT_ZP_Graf1.png" alt="Graf1">
+  <br>
+  <em>Obrázok 4 Dashboard Graf 1</em>
+</p>
+
+---
+### **Graf 2: Počet transakcií podľa hodiny dňa**
+Graf znázorňuje rozdiely v počte transakcií na základe jednotlivých hodín dňa. 
+Z údajov je možné identifikovať časy počas dňa, kedy sa uskutočnuje najviac a najmenej platieb. 
+Z údajov je možné pozorovať, že najväčší počet transakcií sa uskutočnuje `večer a v noci`, zatiaľ čo najmenší počet transakcií sa uskutočnuje `ráno`.
+Tieto údaje môžu byť výrazne užitočné pri optimalizácii prevádzkových hodín tak, aby bola čo najvyššia tržba.
+
+```sql
+/* Graf 2: Počet transakcií podľa hodiny dňa */
+
+SELECT
+    t.hour AS hour,
+    COUNT(f.fact_transactionId) AS total_transactions_by_hour
+FROM fact_transaction f
+INNER JOIN dim_time t ON f.timeId = t.dim_timeId
+GROUP BY t.hour
+ORDER BY t.hour ASC;
+```
+
+<p align="center">
+  <img src="https://github.com/IvanStanUKF/DT_Zaverecny_projekt/blob/main/img/DT_ZP_Graf2.png" alt="Graf2">
+  <br>
+  <em>Obrázok 5 Dashboard Graf 2</em>
+</p>
+
+---
+### **Graf 3: Počet a celková suma transakcií podľa dňa v týždni**
+Graf ukazuje, ako sa počet transakcií a celková výška tržieb líšia v jednotlivých dňoch týždňa. 
+Z údajov je možné identifikovať dni s najvyššou a najnižšou nákupnou aktivitou. 
+Z údajov je možné pozorovať, že najvyššia nákupná aktivita je zvyčajne `od stredy do soboty`, zatiaľ čo najnižšia nákupná aktivita je zvyčajne `od nedeľe do utorka`.
+Tieto údaje môžu byť výrazne užitočné pri optimalizácii prevádzkových dní tak, aby bola čo najvyššia tržba.
+
+```sql
+/* Graf 3: Počet a celková suma transakcií podľa dňa v týždni */
+
+SELECT
+    d.weekday_name AS weekday,
+    SUM(f.transaction_amount) AS total_spend_by_weekday,
+    COUNT(f.fact_transactionId) AS total_transactions_by_weekday
+FROM fact_transaction f
+INNER JOIN dim_date d ON f.dateId = d.dim_dateId
+GROUP BY d.weekday_name, d.weekday
+ORDER BY d.weekday ASC;
+```
+
+<p align="center">
+  <img src="https://github.com/IvanStanUKF/DT_Zaverecny_projekt/blob/main/img/DT_ZP_Graf3.png" alt="Graf3">
+  <br>
+  <em>Obrázok 6 Dashboard Graf 3</em>
+</p>
+
+---
+### **Graf 4: Priemerná tržba na 1 prevádzku podľa kategórie3 (počet prevádzok > 1000)**
+Graf zobrazuje priemernú tržbu na jednu prevádzku podľa obchodnej kategórie (Category 3). 
+Z údajov je možné identifikovať kategórie s najvyššou výkonnosťou na úrovni jednotlivých prevádzok v priemere. Zahrnuté sú len kategórie s viac ako 1000 prevádzkami, aby boli výsledky štatisticky viac relevantné. 
+Z údajov je možné pozorovať, že najväčšia nákupná aktivita je pre podniky v kategórii `Coffee/Tea (nápoje)`.
+Tieto údaje môžu byť výrazne užitočné pri výbere podnikového zamerania.
+
+```sql
+/* Graf 4: Priemerná tržba na 1 prevádzku podľa kategórie3 (počet prevádzok > 1000) */
+
+SELECT
+    m.category3,
+    COUNT(DISTINCT m.store_id) AS total_stores,
+    SUM(f.transaction_amount) AS total_transaction_amount,
+    total_transaction_amount / total_stores AS average_store_transaction_amount_by_category3
+FROM fact_transaction f
+INNER JOIN dim_merchant m ON f.merchantId = m.dim_merchantId
+GROUP BY m.category3
+HAVING total_stores > 1000
+ORDER BY total_stores ASC;
+```
+
+<p align="center">
+  <img src="https://github.com/IvanStanUKF/DT_Zaverecny_projekt/blob/main/img/DT_ZP_Graf4.png" alt="Graf4">
+  <br>
+  <em>Obrázok 7 Dashboard Graf 4</em>
+</p>
+
+---
+### **Graf 5: Popularita podľa generácií držiteľov kariet**
+Graf zobrazuje počet transakcií podľa generácií držiteľov kariet. 
+Z údajov je možné identifikovať vekové generácie s najvyššiou a najnižšou nákupnou aktivitou. 
+Z údajov je možné pozorovať, že najvyššiu nákupnú aktivitu vykazuje generácia `Millennial` a najmenšiu nákupnú aktivitu vykazuje generácia `Silent`. 
+Tieto údaje môžu byť výrazne užitočné pri výbere marketingovej propagácie a stratégie.
+
+```sql
+/* Graf 5: Popularita podľa generácií držiteľov kariet */
+
+SELECT
+    c.cardholder_generation AS generation,
+    COUNT(f.fact_transactionId) AS total_transactions_by_generation
+FROM fact_transaction f
+INNER JOIN dim_card c ON f.cardId = c.dim_cardId
+GROUP BY c.cardholder_generation
+ORDER BY total_transactions_by_generation DESC;
+```
+
+<p align="center">
+  <img src="https://github.com/IvanStanUKF/DT_Zaverecny_projekt/blob/main/img/DT_ZP_Graf5.png" alt="Graf5">
+  <br>
+  <em>Obrázok 8 Dashboard Graf 5</em>
+</p>
+
+---
+### **Graf 6: Priemerná výška transakcie podľa kategórie1**
+Graf zobrazuje priemernú výšku transakcie podľa hlavnej kategórie obchodníka (kategória 1). 
+Z údajov je možné identifikovať a pozorovať, akú priemernú výšku transakcie vykazujú transakcie v daných kategóriách. 
+Tieto údaje môžu byť výrazne užitočné pri poskytovaní finančných služieb a marketingových stratégií.
+
+```sql
+/* Graf 6: Priemerná výška transakcie podľa kategórie1 */
+
+SELECT
+    m.category1,
+    AVG(f.transaction_amount) AS avg_transaction_amount_by_category1
+FROM fact_transaction f
+JOIN dim_merchant m ON f.merchantId = m.dim_merchantId
+GROUP BY m.category1
+ORDER BY avg_transaction_amount_by_category1 DESC;
+```
+
+<p align="center">
+  <img src="https://github.com/IvanStanUKF/DT_Zaverecny_projekt/blob/main/img/DT_ZP_Graf6.png" alt="Graf6">
+  <br>
+  <em>Obrázok 9 Dashboard Graf 6</em>
+</p>
+
+Dashboard poskytuje komplexný pohľad na dáta, pričom zodpovedá dôležité otázky týkajúce sa rozsahu uskutočnených platieb. Vizualizácie umožňujú jednoduchú interpretáciu dát a môžu byť využité na optimalizáciu odporúčacích systémov, marketingových stratégií a gastronomických služieb.
+
 ---
 
 **Autori:** Ivan Stančiak, Maksym Kuryk
